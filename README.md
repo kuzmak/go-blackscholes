@@ -1,2 +1,2 @@
 # go-blackscholes
-Black Scholes Model
+Calculating option price and IV by Black Scholes Model.
