@@ -2,7 +2,6 @@ package bs
 
 import (
 	"math"
-	"runtime/debug"
 	"testing"
 )
 
@@ -62,9 +61,8 @@ func TestBS(t *testing.T) {
 func shouldClose(t *testing.T, x, expected float64) {
 	diff := math.Abs(x - expected)
 	if diff > .000005 || math.IsNaN(x) {
-		debug.PrintStack()
-		t.Errorf("%f is not same as %f (diff: %f)", x, expected, diff)
-		t.FailNow()
+		t.Helper()
+		t.Fatalf("%f is not same as %f (diff: %f)", x, expected, diff)
 	}
 }
 
