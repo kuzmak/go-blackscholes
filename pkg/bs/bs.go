@@ -56,7 +56,7 @@ func IV(ot OptionType, fs, x, t, r, b, cp float64) float64 {
 	bs := BS(ot, fs, x, t, r, b, v)
 	minDiff := math.Abs(cp - bs.Price)
 	countr := 0
-	for 0.00001 <= math.Abs(cp-bs.Price) && math.Abs(cp-bs.Price) <= minDiff && countr < maxIter {
+	for defaultPrecision <= math.Abs(cp-bs.Price) && math.Abs(cp-bs.Price) <= minDiff && countr < maxIter {
 		v = v - (bs.Price-cp)/bs.Vega
 		if (v > maxIV) || (v < minIV) {
 			break
@@ -65,13 +65,13 @@ func IV(ot OptionType, fs, x, t, r, b, cp float64) float64 {
 		minDiff = math.Min(math.Abs(cp-bs.Price), minDiff)
 		countr++
 	}
-	if math.Abs(cp-bs.Price) < 0.00001 {
+	if math.Abs(cp-bs.Price) < defaultPrecision {
 		return v
 	}
-	return bisectionImpliedVol(ot, fs, x, t, r, b, cp, 0.00001, maxIter)
+	return bisectionImpliedVol(ot, fs, x, t, r, b, cp, maxIter)
 }
 
-func bisectionImpliedVol(ot OptionType, fs, x, t, r, b, cp, precision float64, maxSteps int) float64 {
+func bisectionImpliedVol(ot OptionType, fs, x, t, r, b, cp float64, maxSteps int) float64 {
 	vMid := approxImpliedVol(ot, fs, x, t, r, b, cp)
 	var (
 		vLow, vHigh float64
@@ -90,7 +90,7 @@ func bisectionImpliedVol(ot OptionType, fs, x, t, r, b, cp, precision float64, m
 	currentStep := 0
 	diff := math.Abs(cp - cpMid)
 
-	for (diff > precision) && (currentStep < maxSteps) {
+	for (diff > defaultPrecision) && (currentStep < maxSteps) {
 		currentStep++
 
 		if cpMid < cp {
@@ -110,7 +110,7 @@ func bisectionImpliedVol(ot OptionType, fs, x, t, r, b, cp, precision float64, m
 		diff = math.Abs(cp - cpMid)
 	}
 
-	if math.Abs(cp-cpMid) < precision {
+	if math.Abs(cp-cpMid) < defaultPrecision {
 		return vMid
 	}
 	return math.NaN()
@@ -151,9 +151,10 @@ type BSModel struct {
 }
 
 const (
-	maxIV   = 2.0
-	minIV   = 0.01
-	maxIter = 100
+	maxIV            = 2.0
+	minIV            = 0.01
+	maxIter          = 100
+	defaultPrecision = 0.00001
 )
 
 type normalDist struct {
