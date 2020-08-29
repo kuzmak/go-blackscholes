@@ -4,17 +4,6 @@ import (
 	"math"
 )
 
-type OptionType int
-
-const (
-	PUT OptionType = iota
-	CALL
-)
-
-type BSModel struct {
-	Price, Delta, Gamma, Theta, Vega, Rho float64
-}
-
 // BS Inputs:
 //  ot = optionType
 //  fs = price of underlying
@@ -23,7 +12,7 @@ type BSModel struct {
 //   r = risk free rate
 //   b = cost of carry
 //   v = implied volatility
-func BS(ot OptionType, fs, x, t, r, b, v float64) (result *BSModel) {
+func BS(ot OptionType, fs, x, t, r, b, v float64) *BSModel {
 	tSqrt := math.Sqrt(t)
 	d1 := (math.Log(fs/x) + (b+(v*v)/2)*t) / (v * tSqrt)
 	d2 := d1 - v*tSqrt
@@ -35,8 +24,7 @@ func BS(ot OptionType, fs, x, t, r, b, v float64) (result *BSModel) {
 		value = fs*math.Exp((b-r)*t)*norm.cdf(d1) - x*math.Exp(-r*t)*norm.cdf(d2)
 		delta = math.Exp((b-r)*t) * norm.cdf(d1)
 		gamma = math.Exp((b-r)*t) * norm.pdf(d1) / (fs * v * tSqrt)
-		theta = -(fs*v*math.Exp((b-r)*t)*norm.pdf(d1))/(2*tSqrt) - (b-r)*fs*math.Exp(
-			(b-r)*t)*norm.cdf(d1) - r*x*math.Exp(-r*t)*norm.cdf(d2)
+		theta = -(fs*v*math.Exp((b-r)*t)*norm.pdf(d1))/(2*tSqrt) - (b-r)*fs*math.Exp((b-r)*t)*norm.cdf(d1) - r*x*math.Exp(-r*t)*norm.cdf(d2)
 		vega = math.Exp((b-r)*t) * fs * tSqrt * norm.pdf(d1)
 		rho = x * t * math.Exp(-r*t) * norm.cdf(d2)
 	}
@@ -44,22 +32,14 @@ func BS(ot OptionType, fs, x, t, r, b, v float64) (result *BSModel) {
 		value = x*math.Exp(-r*t)*norm.cdf(-d2) - (fs * math.Exp((b-r)*t) * norm.cdf(-d1))
 		delta = -math.Exp((b-r)*t) * norm.cdf(-d1)
 		gamma = math.Exp((b-r)*t) * norm.pdf(d1) / (fs * v * tSqrt)
-		theta = -(fs*v*math.Exp((b-r)*t)*norm.pdf(d1))/(2*tSqrt) + (b-r)*fs*math.Exp(
-			(b-r)*t)*norm.cdf(-d1) + r*x*math.Exp(-r*t)*norm.cdf(-d2)
+		theta = -(fs*v*math.Exp((b-r)*t)*norm.pdf(d1))/(2*tSqrt) + (b-r)*fs*math.Exp((b-r)*t)*norm.cdf(-d1) + r*x*math.Exp(-r*t)*norm.cdf(-d2)
 		vega = math.Exp((b-r)*t) * fs * tSqrt * norm.pdf(d1)
 		rho = -x * t * math.Exp(-r*t) * norm.cdf(-d2)
 	}
-	result = &BSModel{
+	return &BSModel{
 		value, delta, gamma, theta, vega, rho,
 	}
-	return
 }
-
-const (
-	maxIV   = 2.0
-	minIV   = 0.01
-	maxIter = 100
-)
 
 // IV Inputs:
 //   ot = optionType
@@ -158,6 +138,23 @@ func approxImpliedVol(ot OptionType, fs, x, t, r, b, cp float64) float64 {
 
 	return v
 }
+
+type OptionType int
+
+const (
+	PUT OptionType = iota
+	CALL
+)
+
+type BSModel struct {
+	Price, Delta, Gamma, Theta, Vega, Rho float64
+}
+
+const (
+	maxIV   = 2.0
+	minIV   = 0.01
+	maxIter = 100
+)
 
 type normalDist struct {
 	Mu, Sigma float64
