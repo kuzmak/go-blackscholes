@@ -1,3 +1,3 @@
-module github.com/tacoo/go-blackscholes
+module github.com/kuzmak/go-blackscholes
 
 go 1.14

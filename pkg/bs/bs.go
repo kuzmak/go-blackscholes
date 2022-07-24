@@ -4,172 +4,194 @@ import (
 	"math"
 )
 
-// BS Inputs:
-//  ot = optionType
-//  fs = price of underlying
-//   x = strike
-//   t = time to expiration
-//   r = risk free rate
-//   b = cost of carry
-//   v = implied volatility
-func BS(ot OptionType, fs, x, t, r, b, v float64) *BSModel {
-	tSqrt := math.Sqrt(t)
-	d1 := (math.Log(fs/x) + (b+(v*v)/2)*t) / (v * tSqrt)
-	d2 := d1 - v*tSqrt
-
-	var (
-		value, delta, gamma, theta, vega, rho float64
-	)
-	if ot == CALL {
-		value = fs*math.Exp((b-r)*t)*norm.cdf(d1) - x*math.Exp(-r*t)*norm.cdf(d2)
-		delta = math.Exp((b-r)*t) * norm.cdf(d1)
-		gamma = math.Exp((b-r)*t) * norm.pdf(d1) / (fs * v * tSqrt)
-		theta = -(fs*v*math.Exp((b-r)*t)*norm.pdf(d1))/(2*tSqrt) - (b-r)*fs*math.Exp((b-r)*t)*norm.cdf(d1) - r*x*math.Exp(-r*t)*norm.cdf(d2)
-		vega = math.Exp((b-r)*t) * fs * tSqrt * norm.pdf(d1)
-		rho = x * t * math.Exp(-r*t) * norm.cdf(d2)
-	}
-	if ot == PUT {
-		value = x*math.Exp(-r*t)*norm.cdf(-d2) - (fs * math.Exp((b-r)*t) * norm.cdf(-d1))
-		delta = -math.Exp((b-r)*t) * norm.cdf(-d1)
-		gamma = math.Exp((b-r)*t) * norm.pdf(d1) / (fs * v * tSqrt)
-		theta = -(fs*v*math.Exp((b-r)*t)*norm.pdf(d1))/(2*tSqrt) + (b-r)*fs*math.Exp((b-r)*t)*norm.cdf(-d1) + r*x*math.Exp(-r*t)*norm.cdf(-d2)
-		vega = math.Exp((b-r)*t) * fs * tSqrt * norm.pdf(d1)
-		rho = -x * t * math.Exp(-r*t) * norm.cdf(-d2)
-	}
-	return &BSModel{
-		value, delta, gamma, theta, vega, rho,
-	}
-}
-
-// IV Inputs:
-//   ot = optionType
-//   fs = price of underlying
-//    x = strike
-//    t = time to expiration
-//    r = risk free rate
-//    b = cost of carry
-//   cp = Call or Put price
-func IV(ot OptionType, fs, x, t, r, b, cp float64) float64 {
-	v := approxImpliedVol(ot, fs, x, t, r, b, cp)
-	v = math.Max(v, minIV)
-	v = math.Min(v, maxIV)
-	bs := BS(ot, fs, x, t, r, b, v)
-	minDiff := math.Abs(cp - bs.Price)
-	countr := 0
-	for defaultPrecision <= math.Abs(cp-bs.Price) && math.Abs(cp-bs.Price) <= minDiff && countr < maxIter {
-		v = v - (bs.Price-cp)/bs.Vega
-		if (v > maxIV) || (v < minIV) {
-			break
-		}
-		bs = BS(ot, fs, x, t, r, b, v)
-		minDiff = math.Min(math.Abs(cp-bs.Price), minDiff)
-		countr++
-	}
-	if math.Abs(cp-bs.Price) < defaultPrecision {
-		return v
-	}
-	return bisectionImpliedVol(ot, fs, x, t, r, b, cp, maxIter)
-}
-
-func bisectionImpliedVol(ot OptionType, fs, x, t, r, b, cp float64, maxSteps int) float64 {
-	vMid := approxImpliedVol(ot, fs, x, t, r, b, cp)
-	var (
-		vLow, vHigh float64
-	)
-	if (vMid <= minIV) || (vMid >= maxIV) {
-		vLow = minIV
-		vHigh = maxIV
-		vMid = (vLow + vHigh) / 2
-	} else {
-		vLow = math.Max(minIV, vMid*.5)
-		vHigh = math.Min(maxIV, vMid*1.5)
-	}
-
-	cpMid := BS(ot, fs, x, t, r, b, vMid).Price
-
-	currentStep := 0
-	diff := math.Abs(cp - cpMid)
-
-	for (diff > defaultPrecision) && (currentStep < maxSteps) {
-		currentStep++
-
-		if cpMid < cp {
-			vLow = vMid
-		} else {
-			vHigh = vMid
-		}
-
-		cpLow := BS(ot, fs, x, t, r, b, vLow).Price
-		cpHigh := BS(ot, fs, x, t, r, b, vHigh).Price
-
-		vMid = vLow + (cp-cpLow)*(vHigh-vLow)/(cpHigh-cpLow)
-		vMid = math.Max(minIV, vMid)
-		vMid = math.Min(maxIV, vMid)
-
-		cpMid = BS(ot, fs, x, t, r, b, vMid).Price
-		diff = math.Abs(cp - cpMid)
-	}
-
-	if math.Abs(cp-cpMid) < defaultPrecision {
-		return vMid
-	}
-	return math.NaN()
-}
-
-func approxImpliedVol(ot OptionType, fs, x, t, r, b, cp float64) float64 {
-
-	ebrt := math.Exp((b - r) * t)
-	ert := math.Exp(-r * t)
-
-	a := math.Sqrt(2*math.Pi) / (fs*ebrt + x*ert)
-
-	var payoff float64
-	if ot == CALL {
-		payoff = fs*ebrt - x*ert
-	}
-	if ot == PUT {
-		payoff = x*ert - fs*ebrt
-	}
-
-	b = cp - payoff/2
-	c := math.Pow(payoff, 2) / math.Pi
-
-	v := (a * (b + math.Sqrt(math.Pow(b, 2)+c))) / math.Sqrt(t)
-
-	return v
-}
-
-type OptionType int
-
 const (
-	PUT OptionType = iota
-	CALL
-)
-
-type BSModel struct {
-	Price, Delta, Gamma, Theta, Vega, Rho float64
-}
-
-const (
-	maxIV            = 2.0
-	minIV            = 0.01
-	maxIter          = 100
-	defaultPrecision = 0.00001
+	maxIV                = 2.0
+	minIV                = 0.01
+	defaultMaxIterations = 100
+	defaultPrecision     = 0.00001
+	invSqrt2Pi           = 0.39894228040143267793994605993438186847585863116493465766592583
 )
 
 type normalDist struct {
-	Mu, Sigma float64
+	mu    float64
+	sigma float64
 }
 
 var norm = normalDist{0, 1}
 
-const invSqrt2Pi = 0.39894228040143267793994605993438186847585863116493465766592583
+type BSOption struct {
+	Call             bool
+	Spot             float64
+	Strike           float64
+	TimeToExpiration float64
+	InterestRate     float64
+	Dividend         float64
+	IV               float64
+}
+
+type BSOptionPrice struct {
+	Price float64
+	Delta float64
+	Gamma float64
+	Theta float64
+	Vega  float64
+	Rho   float64
+}
+
+func (o BSOption) calculate(calculateVega bool, calculateGreeks bool) BSOptionPrice {
+	tSqrt := math.Sqrt(o.TimeToExpiration)
+	d1 := (math.Log(o.Spot/o.Strike) +
+		(o.Dividend+(o.IV*o.IV)/2)*o.TimeToExpiration) / (o.IV * tSqrt)
+	d2 := d1 - o.IV*tSqrt
+
+	exp1 := math.Exp((o.Dividend - o.InterestRate) * o.TimeToExpiration)
+	exp2 := math.Exp(-o.InterestRate * o.TimeToExpiration)
+
+	cdf_d1, cdf_d2, pdf_d1 := norm.cdf(d1), norm.cdf(d2), norm.pdf(d1)
+
+	op := BSOptionPrice{}
+	if calculateVega || calculateGreeks {
+		op.Vega = exp1 * o.Spot * tSqrt * pdf_d1
+	}
+
+	if calculateGreeks {
+		op.Gamma = exp1 * pdf_d1 / (o.Spot * o.IV * tSqrt)
+	}
+
+	if o.Call {
+		op.Price = o.Spot*exp1*cdf_d1 - o.Strike*exp2*cdf_d2
+
+		if calculateGreeks {
+			op.Delta = exp1 * cdf_d1
+			op.Theta = -(o.Spot*o.IV*exp1*pdf_d1)/(2*tSqrt) -
+				(o.Dividend-o.InterestRate)*o.Spot*exp1*cdf_d1 -
+				o.InterestRate*o.Strike*exp2*cdf_d2
+			op.Rho = o.Strike * o.TimeToExpiration * exp2 * cdf_d2
+		}
+	} else {
+		cdf_nd1, cdf_nd2 := norm.cdf(-d1), norm.cdf(-d2)
+		op.Price = o.Strike*exp2*cdf_nd2 - (o.Spot * exp1 * cdf_nd1)
+
+		if calculateGreeks {
+			op.Delta = -exp1 * cdf_nd1
+			op.Theta = -(o.Spot*o.IV*exp1*pdf_d1)/(2*tSqrt) +
+				(o.Dividend-o.InterestRate)*o.Spot*exp1*cdf_nd1 +
+				o.InterestRate*o.Strike*exp2*cdf_nd2
+			op.Rho = -o.Strike * o.TimeToExpiration * exp2 * cdf_nd2
+		}
+	}
+	return op
+}
+
+func (o BSOption) calculateWithVega() BSOptionPrice {
+	return o.calculate(true, false)
+}
+
+func (o BSOption) calculateWithIV(iv float64) BSOptionPrice {
+	o.IV = iv
+	return o.calculate(false, false)
+}
+
+func (o BSOption) Calculate(calculateGreeks bool) BSOptionPrice {
+	return o.calculate(false, true)
+}
+
+func (o BSOption) getApproximateIV(optionPrice float64) float64 {
+	ebrt := math.Exp((o.Dividend - o.InterestRate) * o.TimeToExpiration)
+	ert := math.Exp(-o.InterestRate * o.TimeToExpiration)
+
+	a := math.Sqrt(2*math.Pi) / (o.Spot*ebrt + o.Strike*ert)
+
+	var payoff float64
+	if o.Call {
+		payoff = o.Spot*ebrt - o.Strike*ert
+	} else {
+		payoff = o.Strike*ert - o.Spot*ebrt
+	}
+
+	d := optionPrice - payoff/2 // dividend
+	c := math.Pow(payoff, 2) / math.Pi
+
+	return (a * (d + math.Sqrt(math.Pow(d, 2)+c))) / math.Sqrt(o.TimeToExpiration)
+}
+
+func (o BSOption) getBisectionIV(optionPrice float64, maxSteps int) float64 {
+	middle := o.getApproximateIV(optionPrice)
+	var low, high float64
+	if (middle <= minIV) || (middle >= maxIV) {
+		low = minIV
+		high = maxIV
+		middle = (low + high) / 2
+	} else {
+		low = math.Max(minIV, middle*.5)
+		high = math.Min(maxIV, middle*1.5)
+	}
+
+	cpMid := o.calculateWithIV(middle).Price
+
+	currentStep := 0
+	diff := math.Abs(optionPrice - cpMid)
+
+	for (diff > defaultPrecision) && (currentStep < maxSteps) {
+		currentStep++
+
+		if cpMid < optionPrice {
+			low = middle
+		} else {
+			high = middle
+		}
+
+		cpLow := o.calculateWithIV(low).Price
+		cpHigh := o.calculateWithIV(high).Price
+
+		middle = low + (optionPrice-cpLow)*(high-low)/(cpHigh-cpLow)
+		middle = math.Max(minIV, middle)
+		middle = math.Min(maxIV, middle)
+
+		cpMid = o.calculateWithIV(middle).Price
+		diff = math.Abs(optionPrice - cpMid)
+	}
+
+	if math.Abs(optionPrice-cpMid) < defaultPrecision {
+		return middle
+	}
+	return math.NaN()
+}
+
+func (o BSOption) CalculateIV(optionPrice float64, maxIterations int) float64 {
+	v := o.getApproximateIV(optionPrice)
+	v = math.Max(v, minIV)
+	v = math.Min(v, maxIV)
+
+	if maxIterations <= 0 {
+		maxIterations = defaultMaxIterations
+	}
+
+	bs := o.calculateWithVega()
+	minDiff := math.Abs(optionPrice - bs.Price)
+	count := 0
+	for defaultPrecision <= math.Abs(optionPrice-bs.Price) &&
+		math.Abs(optionPrice-bs.Price) <= minDiff && count < maxIterations {
+		v = v - (bs.Price-optionPrice)/bs.Vega
+		if (v > maxIV) || (v < minIV) {
+			break
+		}
+
+		op := o.calculateWithIV(v)
+		minDiff = math.Min(math.Abs(optionPrice-op.Price), minDiff)
+		count++
+	}
+	if math.Abs(optionPrice-bs.Price) < defaultPrecision {
+		return v
+	}
+	return o.getBisectionIV(optionPrice, maxIterations)
+}
 
 func (n normalDist) pdf(x float64) float64 {
-	z := x - n.Mu
-	return math.Exp(-z*z/(2*n.Sigma*n.Sigma)) * invSqrt2Pi / n.Sigma
+	z := x - n.mu
+	return math.Exp(-z*z/(2*n.sigma*n.sigma)) * invSqrt2Pi / n.sigma
 }
 
 func (n normalDist) cdf(x float64) float64 {
-	return math.Erfc(-(x-n.Mu)/(n.Sigma*math.Sqrt2)) / 2
+	return math.Erfc(-(x-n.mu)/(n.sigma*math.Sqrt2)) / 2
 }
