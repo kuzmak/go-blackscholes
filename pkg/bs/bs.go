@@ -1,4 +1,4 @@
-kpackage bs
+package bs
 
 import (
 	"math"
