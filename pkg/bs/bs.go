@@ -1,4 +1,4 @@
-package bs
+kpackage bs
 
 import (
 	"math"
@@ -17,7 +17,8 @@ type normalDist struct {
 	sigma float64
 }
 
-var norm = normalDist{0, 1}
+var norm = normalDist{0.0, 1.0}
+var sqrt2Pi float64 = math.Sqrt(math.Pi * 2)
 
 type BSOption struct {
 	Call             bool
@@ -39,47 +40,50 @@ type BSOptionPrice struct {
 }
 
 func (o BSOption) calculate(calculateVega bool, calculateGreeks bool) BSOptionPrice {
-	tSqrt := math.Sqrt(o.TimeToExpiration)
-	d1 := (math.Log(o.Spot/o.Strike) +
-		(o.Dividend+(o.IV*o.IV)/2)*o.TimeToExpiration) / (o.IV * tSqrt)
-	d2 := d1 - o.IV*tSqrt
-
-	exp1 := math.Exp((o.Dividend - o.InterestRate) * o.TimeToExpiration)
-	exp2 := math.Exp(-o.InterestRate * o.TimeToExpiration)
-
-	cdf_d1, cdf_d2, pdf_d1 := norm.cdf(d1), norm.cdf(d2), norm.pdf(d1)
+	sign := -1.0
+	if o.Call {
+		sign = 1.0
+	}
 
 	op := BSOptionPrice{}
+	if o.TimeToExpiration <= 0 {
+		op.Price = math.Max(0, math.Abs(o.Strike-o.Spot))
+		return op
+	}
+
+	tSqrt := math.Sqrt(o.TimeToExpiration)
+	exp1 := math.Exp(-o.Dividend * o.TimeToExpiration)
+	exp2 := math.Exp(-o.InterestRate * o.TimeToExpiration)
+	vt := o.IV * math.Sqrt(o.TimeToExpiration)
+
+	d1 := math.Log(o.Spot/o.Strike) +
+		(o.TimeToExpiration * (o.InterestRate - o.Dividend + ((o.IV * o.IV) * 0.5)))
+	d1 = d1 / vt
+	pdfD1 := norm.pdf(d1)
+
+	d2 := sign * (d1 - o.IV*tSqrt)
+	d1 = sign * d1
+
+	nd1, nd2 := norm.cdf(d1), norm.cdf(d2)
+
+	op.Price = sign * ((o.Spot * exp1 * nd1) - (o.Strike * exp2 * nd2))
+
 	if calculateVega || calculateGreeks {
-		op.Vega = exp1 * o.Spot * tSqrt * pdf_d1
+		op.Vega = exp1 * o.Spot * tSqrt * pdfD1 * 0.01
 	}
 
 	if calculateGreeks {
-		op.Gamma = exp1 * pdf_d1 / (o.Spot * o.IV * tSqrt)
+		op.Delta = sign * exp1 * nd1
+		op.Gamma = exp1 * pdfD1 / (o.Spot * o.IV * tSqrt)
+		op.Rho = sign * o.Strike * o.TimeToExpiration * exp2 * nd2 * 0.01
+
+		d1pdf := math.Exp(-(d1*d1)*0.5) / sqrt2Pi
+		p1 := ((o.Spot * o.IV * exp1) / (2 * tSqrt)) * d1pdf
+		p2 := sign * o.InterestRate * o.Strike * exp2 * nd2
+		p3 := sign * o.Dividend * o.Spot * exp1 * nd1
+		op.Theta = (p3 - p1 - p2) / 365
 	}
 
-	if o.Call {
-		op.Price = o.Spot*exp1*cdf_d1 - o.Strike*exp2*cdf_d2
-
-		if calculateGreeks {
-			op.Delta = exp1 * cdf_d1
-			op.Theta = -(o.Spot*o.IV*exp1*pdf_d1)/(2*tSqrt) -
-				(o.Dividend-o.InterestRate)*o.Spot*exp1*cdf_d1 -
-				o.InterestRate*o.Strike*exp2*cdf_d2
-			op.Rho = o.Strike * o.TimeToExpiration * exp2 * cdf_d2
-		}
-	} else {
-		cdf_nd1, cdf_nd2 := norm.cdf(-d1), norm.cdf(-d2)
-		op.Price = o.Strike*exp2*cdf_nd2 - (o.Spot * exp1 * cdf_nd1)
-
-		if calculateGreeks {
-			op.Delta = -exp1 * cdf_nd1
-			op.Theta = -(o.Spot*o.IV*exp1*pdf_d1)/(2*tSqrt) +
-				(o.Dividend-o.InterestRate)*o.Spot*exp1*cdf_nd1 +
-				o.InterestRate*o.Strike*exp2*cdf_nd2
-			op.Rho = -o.Strike * o.TimeToExpiration * exp2 * cdf_nd2
-		}
-	}
 	return op
 }
 
@@ -195,3 +199,4 @@ func (n normalDist) pdf(x float64) float64 {
 func (n normalDist) cdf(x float64) float64 {
 	return math.Erfc(-(x-n.mu)/(n.sigma*math.Sqrt2)) / 2
 }
+
